@@ -39,7 +39,7 @@ class MolGen(nn.Module):
         """
         super().__init__()
 
-        self.device = device
+        self.device = 'cuda'
 
         self.hidden_dim = hidden_dim
 
@@ -191,35 +191,35 @@ class MolGen(nn.Module):
     #
     #     return clf_loss
 
-    # def  classifier_loss(self, smiles_batch):
-    # """
-    # :param smiles_batch: smiles array to be evaluated
-    # :return: classificator loss (cross-entropy between clf.predict_proba and desired properties)
-    # """
-    #
-    # batch_size = smiles_batch.shape[0]
-    # desired_value = 1
-    #
-    # descriptor_names = rdMolDescriptors.Properties.GetAvailableProperties()
-    # get_descriptors = rdMolDescriptors.Properties(descriptor_names)
-    #
-    # properties_array = None
-    # for smiles in smiles_batch:
-    #     mol_obj = Chem.MolFromSmiles(smiles)
-    #     descriptors = get_descriptors.ComputeProperties(mol_obj)
-    #     descriptors_array = np.array(descriptors)
-    #     if properties_array is None:
-    #         properties_array = np.array([descriptors_array])
-    #     else:
-    #         properties_array = np.append(properties_array, descriptors_array)
-    #
-    # properties_ds = pd.DataFrame(properties_array, columns=descriptor_names)
-    #
-    # clf_predict = self.classifier.predict_proba_(properties_ds)[:, desired_value]  # changed to predict_proba_
-    # clf_loss = tf.keras.metrics.binary_crossentropy(desired_value,
-    #                                                 clf_predict)
-    #
-    # return clf_loss
+    def classifier_loss(self, smiles_batch):
+        """
+        :param smiles_batch: smiles array to be evaluated
+        :return: classificator loss (cross-entropy between clf.predict_proba and desired properties)
+        """
+
+        batch_size = smiles_batch.shape[0]
+        desired_value = 1
+
+        descriptor_names = rdMolDescriptors.Properties.GetAvailableProperties()
+        get_descriptors = rdMolDescriptors.Properties(descriptor_names)
+
+        properties_array = None
+        for smiles in smiles_batch:
+            mol_obj = Chem.MolFromSmiles(smiles)
+            descriptors = get_descriptors.ComputeProperties(mol_obj)
+            descriptors_array = np.array(descriptors)
+            if properties_array is None:
+                properties_array = np.array([descriptors_array])
+            else:
+                properties_array = np.append(properties_array, descriptors_array)
+
+        properties_ds = pd.DataFrame(properties_array, columns=descriptor_names)
+
+        clf_predict = self.classifier.predict_proba_(properties_ds)[:, desired_value]  # changed to predict_proba_
+        clf_loss = tf.keras.metrics.binary_crossentropy(desired_value,
+                                                        clf_predict)
+
+        return clf_loss
 
     def train_step(self, x, drug):
         """One training step
