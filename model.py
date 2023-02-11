@@ -242,9 +242,8 @@ class MolGen(nn.Module):
 
         self.generator_optim.step()
 
-        return {'combined_loss': combined_loss.item(),
-                'discr_loss': discr_loss.item(),
-                'generator_loss': generator_loss.item(),
+        return {'discr_loss': discr_loss.item(), 'generator_loss': np.array(generator_loss).mean(),
+                'clf_loss': clf_loss.mean(), 'combined_loss': combined_loss.mean(),
                 'mean_reward': mean_reward}
 
     def create_dataloader(self, data, batch_size=128, shuffle=True, num_workers=5):
@@ -282,7 +281,8 @@ class MolGen(nn.Module):
         history = {
             'discriminator_loss': np.array([]),
             'generator_loss': np.array([]),
-            'classifier_loss': np.array([])
+            'classifier_loss': np.array([]),
+            'combined_loss': np.array([])
         }
 
         for step in range(max_step):
@@ -294,27 +294,39 @@ class MolGen(nn.Module):
                 batch = next(iter_loader)
 
             # model update
-            self.train_step(batch)
+            discr_loss, generator_loss, \
+                clf_loss, combined_loss, _ = self.train_step(batch).values()
 
             if step % evaluate_every == 0:
                 self.eval()
                 score = self.evaluate_n(100)
                 self.train()
 
-                history['discriminator_loss'] = np.append(history['discriminator_loss'],
-                                                          score)
+            history['discriminator_loss'] = np.append(history['discriminator_loss'],
+                                                      discr_loss)
 
-                # Nina
-                # clf_plt.append(score[1])
-                #
-                # # if score > best_score:
-                # #     self.save_best()
-                # #     print('saving')
-                # #     best_score = score
-                #
-                # print(f'valid = {score[0]: .2f}')
-                # print(f'clf loss = {score[1]: .2f}') # Nina
-                # print(clf_plt)
+            history['generator_loss'] = np.append(history['generator_loss'],
+                                                  generator_loss)
+
+            history['classifier_loss'] = np.append(history['classifier_loss'],
+                                                   clf_loss)
+
+            history['combined_loss'] = np.append(history['combined_loss'],
+                                                 combined_loss)
+
+            # Nina
+            # clf_plt.append(score[1])
+            #
+            # # if score > best_score:
+            # #     self.save_best()
+            # #     print('saving')
+            # #     best_score = score
+            #
+            # print(f'valid = {score[0]: .2f}')
+            # print(f'clf loss = {score[1]: .2f}') # Nina
+            # print(clf_plt)
+
+        return history
 
     def get_mapped(self, seq):
         """Transform a sequence of ids to string
@@ -356,7 +368,7 @@ class MolGen(nn.Module):
         Returns:
             float: requence of valid molecules
         """
-        pack = self.generate_n(n)
+        pack = np.array(self.generate_n(n))
         print(pack[:2])
 
         valid = np.array([Chem.MolFromSmiles(k) is not None for k in pack])
