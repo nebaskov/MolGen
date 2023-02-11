@@ -242,7 +242,7 @@ class MolGen(nn.Module):
 
         self.generator_optim.step()
 
-        return {'discr_loss': discr_loss.item(), 'generator_loss': np.array(generator_loss).mean(),
+        return {'discriminator_loss': discr_loss, 'generator_loss': np.array(generator_loss).mean(),
                 'clf_loss': clf_loss.mean(), 'combined_loss': combined_loss.mean(),
                 'mean_reward': mean_reward}
 
