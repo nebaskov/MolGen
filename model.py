@@ -69,13 +69,18 @@ class MolGen(nn.Module):
 
         self.b = 0.  # baseline reward
 
-    def load(self, path_to_model: str):
+    def load(self, path_to_model: str, device_type: str = 'cpu'):
         """Loads the pre-trained model from the path
 
         :param path_to_model: pickle file containing weights of the pre-trained model
+        :param device_type: defines cpu or gpu usage (default set to cpu)
         :return: MolGen class pre-trained model instance
         """
-        pretrained_model = torch.load(path_to_model)
+        if device_type == 'cpu':
+            pretrained_model = torch.load(path_to_model, map_location=torch.device('cpu'))
+        else:
+            pretrained_model = torch.load(path_to_model, map_location=torch.device('gpu'))
+
         self.load_state_dict(pretrained_model)
 
     def save(self, save_filepath):
@@ -118,41 +123,110 @@ class MolGen(nn.Module):
 
         return loss
 
-    def classifier_loss(self, smiles_batch):
-        """
-        :param smiles_batch: smiles array to be evaluated
-        :return: classificator loss (cross-entropy between clf.predict_proba and desired properties)
-        """
+    def generate_descriptors(self, smiles):
 
-        batch_size = smiles_batch.shape[0]
-        desired_value = 1
-
-        descriptor_names = rdMolDescriptors.Properties.GetAvailableProperties()
+        descriptor_names = list(rdMolDescriptors.Properties.GetAvailableProperties())
         get_descriptors = rdMolDescriptors.Properties(descriptor_names)
 
-        properties_array = None
-        for smiles in smiles_batch:
-            mol_obj = Chem.MolFromSmiles(smiles)
-            descriptors = get_descriptors.ComputeProperties(mol_obj)
-            descriptors_array = np.array(descriptors)
-            if properties_array is None:
-                properties_array = np.array([descriptors_array])
-            else:
-                properties_array = np.append(properties_array, descriptors_array)
+        molecule_object = Chem.MolFromSmiles(smiles)
+        final_descriptors = np.array(get_descriptors.ComputeProperties(molecule_object)).reshape((-1, 43))
 
-        properties_ds = pd.DataFrame(properties_array, columns=descriptor_names)
+        return final_descriptors
 
-        clf_predict = self.classifier.predict_proba_(properties_ds)[:, desired_value]  # changed to predict_proba_
-        clf_loss = tf.keras.metrics.binary_crossentropy(desired_value,
-                                                        clf_predict)
+    def get_clf_input(self, coformer_smiles, drug_smiles):
 
-        return clf_loss
+        drug_descriptors, \
+            coformer_descriptors = self.generate_descriptors(drug_smiles), \
+            self.generate_descriptors(coformer_smiles)
 
-    def train_step(self, x):
+        final_input = np.concatenate((drug_descriptors, coformer_descriptors), axis=1)
+
+        return final_input
+
+    def calculate_clf_error(self, coformer_smiles, drug_smiles, desired_clf_output=1, classifier_path='default'):
+        """
+
+        :param coformer_smiles:
+        :param drug_smiles:
+        :param desired_clf_output:
+        :param classifier_path: if set to default, uses the classifier loaded in __init__ method for MolGen class,
+                                else: path to the classifier weights in .pkl format
+        :return: classifier binary_crossentropy loss
+        """
+
+        if classifier_path == 'default':
+            classifier = self.classifier
+        else:
+            classifier = pi.load(open(classifier_path, 'rb'))
+
+        clf_input = self.get_clf_input(coformer_smiles, drug_smiles)
+        clf_prediction = classifier.predict_proba(clf_input)[:, desired_clf_output]
+
+        error = tf.keras.metrics.binary_crossentropy(desired_clf_output,
+                                                     clf_prediction)
+
+        return float(error)
+
+    # def classifier_loss(self, smiles_batch):
+    #     """
+    #     :param smiles_batch: smiles array to be evaluated
+    #     :return: classificator loss (cross-entropy between clf.predict_proba and desired properties)
+    #     """
+    #
+    #     batch_size = smiles_batch.shape[0]
+    #     desired_value = 1
+    #
+    #     descriptor_names = rdMolDescriptors.Properties.GetAvailableProperties()
+    #     get_descriptors = rdMolDescriptors.Properties(descriptor_names)
+    #
+    #     properties_array = None
+    #
+    #     mol_obj = Chem.MolFromSmiles(smiles_batch)
+    #     descriptors = get_descriptors.ComputeProperties(mol_obj)
+    #     descriptors_array = np.array(descriptors)
+    #
+    #     clf_predict = self.classifier.predict_proba_(descriptors_array)[:, desired_value]  # changed to predict_proba_
+    #     clf_loss = tf.keras.metrics.binary_crossentropy(desired_value,
+    #                                                     clf_predict)
+    #
+    #     return clf_loss
+
+    # def  classifier_loss(self, smiles_batch):
+    # """
+    # :param smiles_batch: smiles array to be evaluated
+    # :return: classificator loss (cross-entropy between clf.predict_proba and desired properties)
+    # """
+    #
+    # batch_size = smiles_batch.shape[0]
+    # desired_value = 1
+    #
+    # descriptor_names = rdMolDescriptors.Properties.GetAvailableProperties()
+    # get_descriptors = rdMolDescriptors.Properties(descriptor_names)
+    #
+    # properties_array = None
+    # for smiles in smiles_batch:
+    #     mol_obj = Chem.MolFromSmiles(smiles)
+    #     descriptors = get_descriptors.ComputeProperties(mol_obj)
+    #     descriptors_array = np.array(descriptors)
+    #     if properties_array is None:
+    #         properties_array = np.array([descriptors_array])
+    #     else:
+    #         properties_array = np.append(properties_array, descriptors_array)
+    #
+    # properties_ds = pd.DataFrame(properties_array, columns=descriptor_names)
+    #
+    # clf_predict = self.classifier.predict_proba_(properties_ds)[:, desired_value]  # changed to predict_proba_
+    # clf_loss = tf.keras.metrics.binary_crossentropy(desired_value,
+    #                                                 clf_predict)
+    #
+    # return clf_loss
+
+    def train_step(self, x, drug):
         """One training step
 
             Args:
                 x (torch.LongTensor): sample form real distribution
+                :param drug: drug to be taken as target
             """
 
         batch_size, len_real = x.size()
@@ -189,7 +263,8 @@ class MolGen(nn.Module):
         # discr_loss.backward()
 
         # classifier loss
-        clf_loss = self.classifier_loss(x_gen)
+        # clf_loss = self.classifier_loss(x_gen)
+        clf_loss = self.calculate_clf_error(x, drug_smiles=drug)
 
         # combined disc + clf loss
         # combined_loss = np.log(discr_loss) + np.log(clf_loss)  # version 0
@@ -267,13 +342,14 @@ class MolGen(nn.Module):
             num_workers=num_workers
         )
 
-    def train_n_steps(self, train_loader, max_step=10000, evaluate_every=50):
+    def train_n_steps(self, train_loader, drug=None, max_step=10000, evaluate_every=50):
         """Train for max_step steps
 
         Args:
             train_loader (torch.data.DataLoader): dataloader
             max_step (int, optional): Defaults to 10000.
             evaluate_every (int, optional): Defaults to 50.
+            :param drug (str, optional): drug to be set as the target
         """
 
         iter_loader = iter(train_loader)
@@ -295,7 +371,7 @@ class MolGen(nn.Module):
 
             # model update
             discr_loss, generator_loss, \
-                clf_loss, combined_loss, _ = self.train_step(batch).values()
+                clf_loss, combined_loss, _ = self.train_step(batch, drug).values()
 
             if step % evaluate_every == 0:
                 self.eval()
