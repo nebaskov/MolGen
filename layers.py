@@ -5,6 +5,7 @@ from allennlp.modules.seq2seq_encoders import (LstmSeq2SeqEncoder,
 from torch import nn
 from torch.distributions import Categorical
 from torch.nn.modules.activation import Sigmoid
+import torch.nn.functional as F
 
 
 class Generator(nn.Module):
@@ -193,3 +194,82 @@ class RecurrentDiscriminator(nn.Module):
         out = self.fc(x).squeeze(-1)  # [B, max_len]
 
         return {'out': out[:, 1:], 'mask': mask.float()[:, 1:]}
+
+
+class JSD(nn.Module):
+    """Jensen Shannon Divergence loss"""
+
+    def __init__(self, device):
+        super(JSD, self).__init__()
+        self.device = torch.device(device)
+    
+    def forward(self, real_logs, gen_logs):
+        
+        batch_size = real_logs.size()[0]
+        
+        # cut_real_logs = torch.tensor([])
+        # for tensor in real_logs:
+        #     stop_idx = 0    
+        #     for element in tensor.values():
+        #         if element == 0:
+        #             stop_idx += 1
+        #             break
+        #         else:
+        #             stop_idx += 1
+            
+            
+        # real_probs =  F.softmax(real_logs, dim=1, dtype=torch.float16)
+        # gen_probs =  F.softmax(gen_logs, dim=1, dtype=torch.float16)
+        
+        real_dist = Categorical(logits=real_logs)
+        real_sample = real_dist.sample()
+        real_probs = torch.exp(real_dist.log_prob(real_sample)).to(self.device)
+        
+        gen_dist = Categorical(logits=gen_logs)
+        gen_sample = gen_dist.sample()
+        gen_probs = torch.exp(gen_dist.log_prob(gen_sample)).to(self.device)
+        
+        
+        real_len = real_probs.size()[0]
+        gen_len = gen_probs.size()[0]
+
+        if real_len > gen_len:
+            diff = real_len - gen_len
+            zeros = torch.zeros((batch_size, diff), device=self.device, dtype=torch.float16)
+            gen_probs = torch.cat([gen_probs, zeros], dim=1, dtype=torch.float16)
+            gen_logits = torch.cat([gen_logits, zeros], dim=1, dtype=torch.float16)
+            
+        elif real_len < gen_len:
+            diff = gen_len - real_len
+            zeros = torch.zeros((batch_size, diff), device=self.device, dtype=torch.float16)
+            real_probs = torch.cat([real_probs, zeros], dim=1, dtype=torch.float16)
+            real_logits = torch.cat([real_logits, zeros], dim=1, dtype=torch.float16)
+        
+        total_m = (0.5 * (real_probs.to(self.device) +
+                          gen_probs.to(self.device))).to(self.device)
+                          
+        loss = 0.0
+        loss += F.kl_div(real_probs, total_m, reduction="batchmean") 
+        loss += F.kl_div(gen_probs, total_m, reduction="batchmean") 
+        loss *= 0.5
+        
+        # loss += F.kl_div(F.log_softmax(real_logits, dim=1), total_m, reduction="batchmean") 
+        # loss += F.kl_div(F.log_softmax(gen_logits, dim=1), total_m, reduction="batchmean") 
+        # loss *= 0.5
+
+        loss.to(self.device)
+        
+        return loss
+    
+    
+# class JSD(nn.Module):
+#     def __init__(self):
+#         super(JSD, self).__init__()
+#         self.kl = nn.KLDivLoss(reduction='batchmean', log_target=True)
+
+#     def forward(self, p: torch.tensor, q: torch.tensor):
+#         p, q = F.softmax(p, dim=0), F.softmax(q, dim=0)
+#         p, q = p.view(-1, p.size(-1)), q.view(-1, q.size(-1))
+#         m = (0.5 * (p + q)).log()
+        
+#         return 0.5 * (self.kl(p.log(), m) + self.kl(q.log(), m))

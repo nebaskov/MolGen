@@ -1,3 +1,5 @@
+import statistics
+
 import numpy as np
 import pickle as pi
 from rdkit import Chem, RDLogger
@@ -8,11 +10,10 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_value_
-
-import tensorflow as tf
+from torch.distributions import Categorical
 
 from tokenizer import Tokenizer
-from layers import Generator, RecurrentDiscriminator
+from layers import Generator, RecurrentDiscriminator, JSD
 
 RDLogger.DisableLog('rdApp.*')
 
@@ -51,6 +52,9 @@ class MolGen(nn.Module):
             bidirectional=True
         ).to(device)
 
+        self.js_div = JSD(self.device).to(device)
+
+        
         self.generator_optim = torch.optim.Adam(
             self.generator.parameters(), lr=lr)
 
@@ -233,7 +237,7 @@ class MolGen(nn.Module):
         self.generator_optim.zero_grad()
 
         # prediction for generated x
-        y_pred, y_pred_mask = self.discriminator(x_gen).values()
+        y_pred, y_pred_mask = self.discriminator.forward(x_gen).values()
 
         # Reward (see the ref paper)
         R = (2 * y_pred - 1)
@@ -241,7 +245,7 @@ class MolGen(nn.Module):
         # reward len for each sequence
         lengths = y_pred_mask.sum(1).long()
 
-        # list of rew of each sequences
+        # list of rewards of each sequences
         list_rewards = [rw[:ln] for rw, ln in zip(R, lengths)]
 
         # compute - (r - b) log x
@@ -256,19 +260,48 @@ class MolGen(nn.Module):
         # mean loss + entropy reg
         generator_loss = torch.stack(generator_loss).mean() - \
             sum(entropies) * 0.01 / batch_size
+            
+        generator_loss.backward()
+        
+        # real_dist = Categorical(logits=y_real)
+        # real_sample = real_dist.sample()
+        # real_log_proba = real_dist.log_prob(real_sample)
+        # real_proba = torch.exp(real_log_proba)
+        
+        # fake_dist = Categorical(logits=y_gen)
+        # fake_sample = fake_dist.sample()
+        # fake_log_proba = fake_dist.log_prob(fake_sample)
+        # fake_proba = torch.exp(fake_log_proba)
+        
+        # calculate Jensen-Shannon divergence
+        # d_js = []
+        # for r_prob, f_prob in zip(real_proba, fake_proba):
+            
+        #     local_d_js = f_prob * torch.log((2 * r_prob) / (r_prob + f_prob)) + \
+        #         r_prob * torch.log((2 * r_prob / (r_prob + f_prob)))
+            
+        #     d_js.append(local_d_js)
+        
+        # test_loss = (self.js_div.forward(x_real, x_gen) + \
+        #                 (generator_loss.to(self.device) * 0).to(torch.float16).to(self.device)).to(self.device)
+
+
+        # test_loss.backward(retain_graph=False)
+
         
         # baseline moving average
         with torch.no_grad():
             mean_reward = (R * y_pred_mask).sum() / y_pred_mask.sum()
             self.b = 0.9 * self.b + (1 - 0.9) * mean_reward
 
-        generator_loss.backward()
+        # generator_loss.backward()
 
         clip_grad_value_(self.generator.parameters(), 0.1)
 
         self.generator_optim.step()
 
-        return {'loss_disc': discr_loss.item(), 'mean_reward': mean_reward, "loss_gen": generator_loss.item()}
+        # return {'loss_disc': discr_loss.item(), 'mean_reward': mean_reward, "loss_gen": generator_loss.item()}
+        return {'loss_disc': discr_loss.item(), 'mean_reward': mean_reward, "loss_gen": test_loss}
 
     def create_dataloader(self, data, batch_size=128, shuffle=True, num_workers=5):
         """create a dataloader
@@ -320,12 +353,12 @@ class MolGen(nn.Module):
             local_history = self.train_step(batch)
             
             # model save best
-            if step > 0:
-                discr_loss_condition = torch.mean(history["loss_disc"]) > torch.mean(local_history["loss_disc"])
-                gen_loss_condition = torch.mean(history["gen_loss_disc"]) > torch.mean(local_history["gen_loss_disc"])                
+            # if step > 0:
+            #     discr_loss_condition = statistics.mean(history["loss_disc"]) > statistics.mean(local_history["loss_disc"])
+            #     gen_loss_condition = st.mean(history["gen_loss_disc"]) > statistics.mean(local_history["gen_loss_disc"])                
                 
-                if discr_loss_condition or gen_loss_condition: 
-                    torch.save(self.state_dict(), f"{mode}_best_model.pt")
+            #     if discr_loss_condition or gen_loss_condition: 
+            #         torch.save(self.state_dict(), f"{mode}_best_model.pt")
 
                 
             history["loss_disc"].append(local_history["loss_disc"])
