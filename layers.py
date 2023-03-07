@@ -43,6 +43,7 @@ class Generator(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(latent_dim, latent_dim * 2),
+            nn.BatchNorm1d(latent_dim * 2),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(latent_dim * 2, vocab_size - 1)
@@ -130,6 +131,7 @@ class Generator(nn.Module):
 
         return {'x': x, 'log_probabilities': _log_probabilities, 'entropies': _entropies}
 
+# todo: try to pretrain Discr and bound Gen loss to positive numbers only
 
 class RecurrentDiscriminator(nn.Module):
 
@@ -171,7 +173,7 @@ class RecurrentDiscriminator(nn.Module):
             x ([type]): [description]
 
         Returns:
-            [type]: [description]
+            dict: prediction for generater
         """
 
         batch_size, _ = x.size()

@@ -186,6 +186,160 @@ class MolGen(nn.Module):
                 
         return history
 
+
+
+
+
+#################################################################
+###################INITIAL SCRIPT################################
+
+    # def discriminator_loss(self, x, y):
+    #     """Discriminator loss
+    #     Args:
+    #         x (torch.LongTensor): input sequence [batch_size, max_len]
+    #         y (torch.LongTensor): sequence label (zeros from generatoe, ones from real data)
+    #                               [batch_size, max_len]
+    #     Returns:
+    #         loss value
+    #     """
+
+    #     y_pred, mask = self.discriminator(x).values()
+
+    #     loss = F.binary_cross_entropy(
+    #         y_pred, y, reduction='none') * mask
+
+    #     loss = loss.sum() / mask.sum()
+
+    #     return loss
+
+    # def train_step(self, x):
+    #     """One training step
+    #     Args:
+    #         x (torch.LongTensor): sample form real distribution
+    #     """
+
+    #     batch_size, len_real = x.size()
+
+    #     # create real and fake labels
+    #     x_real = x.to(self.device)
+    #     y_real = torch.ones(batch_size, len_real).to(self.device)
+
+    #     # sample latent var
+    #     z = self.sample_latent(batch_size)
+    #     generator_outputs = self.generator.forward(z, max_len=20)
+    #     x_gen, log_probs, entropies = generator_outputs.values()
+
+    #     # label for fake data
+    #     _, len_gen = x_gen.size()
+    #     y_gen = torch.zeros(batch_size, len_gen).to(self.device)
+
+    #     #####################
+    #     # Train Discriminator
+    #     #####################
+
+    #     self.discriminator_optim.zero_grad()
+
+    #     # disc fake loss
+    #     fake_loss = self.discriminator_loss(x_gen, y_gen)
+
+    #     # disc real loss
+    #     real_loss = self.discriminator_loss(x_real, y_real)
+
+    #     # combined loss
+    #     discr_loss = 0.5 * (real_loss + fake_loss)
+    #     discr_loss.backward()
+
+    #     # clip grad
+    #     clip_grad_value_(self.discriminator.parameters(), 0.1)
+
+    #     # update params
+    #     self.discriminator_optim.step()
+
+    #     # ###############
+    #     # Train Generator
+    #     # ###############
+
+    #     self.generator_optim.zero_grad()
+
+    #     # prediction for generated x
+    #     y_pred, y_pred_mask = self.discriminator(x_gen).values()
+
+    #     # Reward (see the ref paper)
+    #     R = (2 * y_pred - 1)
+
+    #     # reward len for each sequence
+    #     lengths = y_pred_mask.sum(1).long()
+
+    #     # list of rew of each sequences
+    #     list_rewards = [rw[:ln] for rw, ln in zip(R, lengths)]
+
+    #     # compute - (r - b) log x
+    #     generator_loss = []
+    #     for reward, log_p in zip(list_rewards, log_probs):
+
+    #         # substract the baseline
+    #         reward_baseline = reward - self.b
+
+    #         generator_loss.append((- reward_baseline * log_p).sum())
+
+    #     # mean loss + entropy reg
+    #     generator_loss = torch.stack(generator_loss).mean() - \
+    #         sum(entropies) * 0.01 / batch_size
+
+    #     # baseline moving average
+    #     with torch.no_grad():
+    #         mean_reward = (R * y_pred_mask).sum() / y_pred_mask.sum()
+    #         self.b = 0.9 * self.b + (1 - 0.9) * mean_reward
+
+    #     generator_loss.backward()
+
+    #     clip_grad_value_(self.generator.parameters(), 0.1)
+
+    #     self.generator_optim.step()
+
+    #     return {'loss_disc': discr_loss.item(), 'mean_reward': mean_reward}
+
+
+    # def train_n_steps(self, train_loader, max_step=10000, evaluate_every=50):
+    #     """Train for max_step steps
+    #     Args:
+    #         train_loader (torch.data.DataLoader): dataloader
+    #         max_step (int, optional): Defaults to 10000.
+    #         evaluate_every (int, optional): Defaults to 50.
+    #     """
+
+    #     iter_loader = iter(train_loader)
+
+    #     # best_score = 0.0
+
+    #     for step in range(max_step):
+
+    #         try:
+    #             batch = next(iter_loader)
+    #         except:
+    #             iter_loader = iter(train_loader)
+    #             batch = next(iter_loader)
+
+    #         # model update
+    #         self.train_step(batch)
+
+    #         if step % evaluate_every == 0:
+
+    #             self.eval()
+    #             score = self.evaluate_n(100)
+    #             self.train()
+
+    #             # if score > best_score:
+    #             #     self.save_best()
+    #             #     print('saving')
+    #             #     best_score = score
+
+    #             print(f'valid = {score: .2f}')
+
+#############################################################
+#############################################################
+
+
     def train_step(self, x):
         """One training step
 
@@ -245,7 +399,7 @@ class MolGen(nn.Module):
         # reward len for each sequence
         lengths = y_pred_mask.sum(1).long()
 
-        # list of rewards of each sequences
+        # list of rew of each sequences
         list_rewards = [rw[:ln] for rw, ln in zip(R, lengths)]
 
         # compute - (r - b) log x
@@ -255,53 +409,25 @@ class MolGen(nn.Module):
             # substract the baseline
             reward_baseline = reward - self.b
 
-            generator_loss.append((- reward_baseline * log_p).sum() ** 2)
+            generator_loss.append((- reward_baseline * log_p).sum())
 
         # mean loss + entropy reg
         generator_loss = torch.stack(generator_loss).mean() - \
             sum(entropies) * 0.01 / batch_size
-            
-        generator_loss.backward()
-        
-        # real_dist = Categorical(logits=y_real)
-        # real_sample = real_dist.sample()
-        # real_log_proba = real_dist.log_prob(real_sample)
-        # real_proba = torch.exp(real_log_proba)
-        
-        # fake_dist = Categorical(logits=y_gen)
-        # fake_sample = fake_dist.sample()
-        # fake_log_proba = fake_dist.log_prob(fake_sample)
-        # fake_proba = torch.exp(fake_log_proba)
-        
-        # calculate Jensen-Shannon divergence
-        # d_js = []
-        # for r_prob, f_prob in zip(real_proba, fake_proba):
-            
-        #     local_d_js = f_prob * torch.log((2 * r_prob) / (r_prob + f_prob)) + \
-        #         r_prob * torch.log((2 * r_prob / (r_prob + f_prob)))
-            
-        #     d_js.append(local_d_js)
-        
-        # test_loss = (self.js_div.forward(x_real, x_gen) + \
-        #                 (generator_loss.to(self.device) * 0).to(torch.float16).to(self.device)).to(self.device)
 
-
-        # test_loss.backward(retain_graph=False)
-
-        
         # baseline moving average
         with torch.no_grad():
             mean_reward = (R * y_pred_mask).sum() / y_pred_mask.sum()
             self.b = 0.9 * self.b + (1 - 0.9) * mean_reward
 
-        # generator_loss.backward()
+        generator_loss.backward()
 
         clip_grad_value_(self.generator.parameters(), 0.1)
 
         self.generator_optim.step()
 
-        # return {'loss_disc': discr_loss.item(), 'mean_reward': mean_reward, "loss_gen": generator_loss.item()}
-        return {'loss_disc': discr_loss.item(), 'mean_reward': mean_reward, "loss_gen": test_loss}
+        return {'loss_disc': discr_loss.item(), 'mean_reward': mean_reward, "loss_gen": generator_loss.item()}
+
 
     def create_dataloader(self, data, batch_size=128, shuffle=True, num_workers=5):
         """create a dataloader
@@ -351,15 +477,6 @@ class MolGen(nn.Module):
 
             # model update
             local_history = self.train_step(batch)
-            
-            # model save best
-            # if step > 0:
-            #     discr_loss_condition = statistics.mean(history["loss_disc"]) > statistics.mean(local_history["loss_disc"])
-            #     gen_loss_condition = st.mean(history["gen_loss_disc"]) > statistics.mean(local_history["gen_loss_disc"])                
-                
-            #     if discr_loss_condition or gen_loss_condition: 
-            #         torch.save(self.state_dict(), f"{mode}_best_model.pt")
-
                 
             history["loss_disc"].append(local_history["loss_disc"])
             history["loss_gen"].append(local_history["loss_gen"])

@@ -4,7 +4,6 @@ import pandas as pd
 import pickle as pi
 from rdkit import Chem
 from model import MolGen
-import matplotlib.pyplot as plt
 from multiprocessing import freeze_support
 
 

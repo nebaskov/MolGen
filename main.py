@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pickle as pi
 from rdkit import Chem
-from models.model import MolGen
+from model import MolGen
 import matplotlib.pyplot as plt
 
 from rdkit.Chem import PandasTools
