@@ -34,22 +34,22 @@ class Generator(nn.Module):
             num_layers=2,
             hidden_dims=[latent_dim * 2, latent_dim * 2],
             activations=[nn.ReLU(), nn.ELU(alpha=0.1)],
-            dropout=[0.1, 0.1]
+            dropout=[0.1, 0.3]
         )
 
         self.rnn = nn.LSTMCell(latent_dim, latent_dim)
 
         self.output_layer = nn.Sequential(
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.3),
             nn.Linear(latent_dim, latent_dim * 2),
             nn.BatchNorm1d(latent_dim * 2),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.3),
             nn.Linear(latent_dim * 2, vocab_size - 1)
         )
 
-    def forward(self, z, max_len=20):
+    def forward(self, z, max_len=50):
         """[summary]
 
         Args:
@@ -131,11 +131,10 @@ class Generator(nn.Module):
 
         return {'x': x, 'log_probabilities': _log_probabilities, 'entropies': _entropies}
 
-# todo: try to pretrain Discr and bound Gen loss to positive numbers only
 
 class RecurrentDiscriminator(nn.Module):
 
-    def __init__(self, hidden_size, vocab_size, start_token, bidirectional=True):
+    def __init__(self, hidden_size, vocab_size, start_token, bidirectional=False):
         """Reccurent discriminator
 
         Args:
@@ -158,10 +157,10 @@ class RecurrentDiscriminator(nn.Module):
 
         self.fc = nn.Sequential(
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.3),
             nn.Linear(hidden_size, hidden_size * 2),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.3),
             nn.Linear(hidden_size * 2, 1),
             nn.Sigmoid()
         )
@@ -173,7 +172,7 @@ class RecurrentDiscriminator(nn.Module):
             x ([type]): [description]
 
         Returns:
-            dict: prediction for generater
+            [type]: [description]
         """
 
         batch_size, _ = x.size()

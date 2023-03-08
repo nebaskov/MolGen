@@ -20,7 +20,7 @@ RDLogger.DisableLog('rdApp.*')
 
 class MolGen(nn.Module):
 
-    def __init__(self, data, classifier, hidden_dim=128, lr=1e-3, device='cpu'):
+    def __init__(self, data, classifier, hidden_dim=128, gen_lr=1e-3, disr_lr = 1e-3, device='cpu'):
         """[summary]
 
         Args:
@@ -56,10 +56,10 @@ class MolGen(nn.Module):
 
         
         self.generator_optim = torch.optim.Adam(
-            self.generator.parameters(), lr=lr)
+            self.generator.parameters(), lr=gen_lr)
 
         self.discriminator_optim = torch.optim.Adam(
-            self.discriminator.parameters(), lr=lr)
+            self.discriminator.parameters(), lr=disr_lr)
 
         self.b = 0.  # baseline reward
         
@@ -355,7 +355,7 @@ class MolGen(nn.Module):
 
         # sample latent var
         z = self.sample_latent(batch_size)
-        generator_outputs = self.generator.forward(z, max_len=20)
+        generator_outputs = self.generator.forward(z, max_len=50)
         x_gen, log_probs, entropies = generator_outputs.values()
 
         # label for fake data
@@ -407,13 +407,16 @@ class MolGen(nn.Module):
         for reward, log_p in zip(list_rewards, log_probs):
 
             # substract the baseline
-            reward_baseline = reward - self.b
+            reward_baseline = reward
 
-            generator_loss.append((- reward_baseline * log_p).sum())
+            generator_loss.append(((- reward_baseline) * log_p).sum())
+        
+        # generator_loss = torch.stack(generator_loss).mean().to(self.device)
+        
 
         # mean loss + entropy reg
-        generator_loss = torch.stack(generator_loss).mean() - \
-            sum(entropies) * 0.01 / batch_size
+        generator_loss = (torch.stack(generator_loss).mean() - \
+            sum(entropies) * 0.01/ batch_size).to(self.device)
 
         # baseline moving average
         with torch.no_grad():
@@ -422,7 +425,7 @@ class MolGen(nn.Module):
 
         generator_loss.backward()
 
-        clip_grad_value_(self.generator.parameters(), 0.1)
+        clip_grad_value_(self.generator.parameters(), 0.3)
 
         self.generator_optim.step()
 
@@ -686,7 +689,7 @@ class MolGen(nn.Module):
 
         generator_loss.backward()
 
-        clip_grad_value_(self.generator.parameters(), 0.1)
+        clip_grad_value_(self.generator.parameters(), 0.3)
 
         self.generator_optim.step()
 
